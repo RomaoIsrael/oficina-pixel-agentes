@@ -1,0 +1,37 @@
+# Repositorios hermanos (se clonan FUERA de esta carpeta, en ../<repo>,
+# pero se excluyen aqui por si alguna vez alguien los copia adentro por
+# error). Nunca deben versionarse dentro de este repo.
+/Garmin_Connect_Summary/
+/dossier-builder-qaqc/
+/practica_perfiles_analistas/
+
+# Variables de entorno y credenciales
+.env
+.env.*
+!.env.example
+
+# Node / frontend (Vite + TypeScript + Phaser)
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+
+# Python / backend (FastAPI)
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Sprites/audio generados (se regeneran con los scripts; no se versionan binarios pesados salvo que se decida lo contrario)
+# assets/generated/
+
+# Editor / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
