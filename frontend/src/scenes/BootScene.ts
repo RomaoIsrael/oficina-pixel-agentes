@@ -47,7 +47,6 @@ export class BootScene extends Phaser.Scene {
     this.generateTileTextures();
     this.generateFurnitureTextures();
     this.generatePlayerTextures();
-    this.generatePlayerAnimations();
     this.scene.start("Title");
   }
 
@@ -125,33 +124,5 @@ export class BootScene extends Phaser.Scene {
     g.fillCircle(w / 2, 6, 5);
     g.generateTexture("player-placeholder", w, h);
     g.destroy();
-  }
-
-  /**
-   * Crea las animaciones "walk-*" e "idle-*" a partir de las texturas
-   * generadas arriba. Usa dos texturas independientes como si fueran los
-   * frames 0 y 1 de un spritesheet — Phaser lo permite referenciando cada
-   * frame por su propia texture key. En la Fase 2, con un spritesheet real,
-   * solo cambia de dónde salen esos frames; las claves de animación
-   * ("walk-down", "idle-up", etc.) quedan iguales para no tocar Player.ts.
-   */
-  private generatePlayerAnimations(): void {
-    const facings: Facing[] = ["down", "up", "left", "right"];
-    for (const facing of facings) {
-      this.anims.create({
-        key: `walk-${facing}`,
-        frames: [
-          { key: `player-${facing}-0`, frame: "__BASE" },
-          { key: `player-${facing}-1`, frame: "__BASE" },
-        ],
-        frameRate: 6,
-        repeat: -1,
-      });
-      this.anims.create({
-        key: `idle-${facing}`,
-        frames: [{ key: `player-${facing}-0`, frame: "__BASE" }],
-        frameRate: 1,
-      });
-    }
   }
 }

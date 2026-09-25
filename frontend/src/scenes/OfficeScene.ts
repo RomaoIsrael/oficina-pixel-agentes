@@ -154,7 +154,7 @@ export class OfficeScene extends Phaser.Scene {
     return group;
   }
 
-  update(): void {
+  update(_time: number, delta: number): void {
     this.keyboardInput.up = this.anyDown(this.keys.up);
     this.keyboardInput.down = this.anyDown(this.keys.down);
     this.keyboardInput.left = this.anyDown(this.keys.left);
@@ -164,7 +164,7 @@ export class OfficeScene extends Phaser.Scene {
 
     mergeInputInto(this.mergedInput, this.keyboardInput, touchInput);
 
-    this.player.update();
+    this.player.update(delta);
     this.player.setDepth(this.player.y);
 
     const tileX = Math.floor(this.player.x / TILE_SIZE);

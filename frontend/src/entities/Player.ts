@@ -4,18 +4,27 @@ import type { InputState } from "../input/InputState";
 export type Facing = "up" | "down" | "left" | "right";
 
 const SPEED = 90; // px/seg — velocidad de paseo normal.
+const WALK_FRAME_MS = 160; // cada cuanto alterna el frame de "piernas" al caminar.
 
 /**
  * El jugador (Romão, Director). En la Fase 1 usa una textura placeholder
  * generada por código (ver BootScene); la Fase 2 la reemplaza por el sprite
  * sheet real con animaciones de caminar en 4 direcciones.
+ *
+ * El "ciclo de caminata" se hace cambiando la textura completa del sprite
+ * (setTexture) en vez de usar el sistema de animaciones de Phaser, para no
+ * depender de cómo Phaser resuelve frames entre texturas generadas por
+ * separado (generateTexture) — más simple y sin sorpresas mientras no haya
+ * un spritesheet real.
  */
 export class Player extends Phaser.Physics.Arcade.Sprite {
   facing: Facing = "down";
   private input: InputState;
+  private walkFrameTimer = 0;
+  private walkFrameIndex: 0 | 1 = 0;
 
   constructor(scene: Phaser.Scene, x: number, y: number, input: InputState) {
-    super(scene, x, y, "player-placeholder");
+    super(scene, x, y, "player-down-0");
     this.input = input;
     scene.add.existing(this);
     scene.physics.add.existing(this);
@@ -29,7 +38,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     body.setCollideWorldBounds(true);
   }
 
-  update(): void {
+  update(delta: number): void {
     const body = this.body as Phaser.Physics.Arcade.Body;
     let vx = 0;
     let vy = 0;
@@ -47,15 +56,24 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
     body.setVelocity(vx * SPEED, vy * SPEED);
 
-    if (vx !== 0 || vy !== 0) {
+    const moving = vx !== 0 || vy !== 0;
+
+    if (moving) {
       if (Math.abs(vx) > Math.abs(vy)) {
         this.facing = vx > 0 ? "right" : "left";
       } else {
         this.facing = vy > 0 ? "down" : "up";
       }
-      this.anims.play(`walk-${this.facing}`, true);
+      this.walkFrameTimer += delta;
+      if (this.walkFrameTimer >= WALK_FRAME_MS) {
+        this.walkFrameTimer = 0;
+        this.walkFrameIndex = this.walkFrameIndex === 0 ? 1 : 0;
+      }
     } else {
-      this.anims.play(`idle-${this.facing}`, true);
+      this.walkFrameTimer = 0;
+      this.walkFrameIndex = 0;
     }
+
+    this.setTexture(`player-${this.facing}-${this.walkFrameIndex}`);
   }
 }
