@@ -12,8 +12,9 @@ de Nintendo).
 
 ## Estado del proyecto
 
-En construcción — Fase 0 (exploración e integración). Ver `docs/` a medida que se
-generen los documentos de cada fase.
+En construcción — Fase 1 (motor de la oficina): mapa completo con las 8 áreas,
+colisiones, jugador (teclado + táctil), cámara y pantalla de inicio. Ver `docs/` para
+los documentos de integración de la Fase 0.
 
 ## Repositorios hermanos
 
@@ -38,8 +39,41 @@ Más detalle en `docs/` conforme avancen las fases.
 
 ## Instalación y ejecución
 
-Pendiente — se documentará al cerrar la Fase 1 (motor de la oficina) y la Fase 5
-(conexión real), cuando exista código para instalar y ejecutar.
+### Frontend (motor de la oficina)
+
+Requiere [Node.js](https://nodejs.org/) 18 o superior.
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Abre la URL que muestra la terminal (por defecto `http://localhost:5173`). Deberías
+ver la pantalla de título ("OFICINA PIXEL DE AGENTES" / "PRESIONA START"); al
+presionar cualquier tecla o tocar la pantalla entras a la oficina y puedes caminar
+con las flechas/WASD (o la cruceta táctil en celular/tablet). El nombre del área
+donde estás parado se muestra arriba a la izquierda.
+
+Otros comandos útiles:
+
+```bash
+npm run typecheck   # solo revisa tipos, sin generar nada
+npm run build        # build de producción en frontend/dist/
+node scripts/validate-map.mjs   # verifica que todas las areas del mapa sean alcanzables
+```
+
+> **Nota de esta sesión**: el entorno donde se escribió este código no tiene salida a
+> `registry.npmjs.org` (política de red del sandbox), así que no pude correr
+> `npm install` ni ver la app corriendo acá. Sí pude validar la sintaxis con `tsc
+> --noEmit` (sin resolver el paquete `phaser`, que requiere estar instalado) y la
+> conectividad del mapa con `validate-map.mjs`. Por favor corre los pasos de arriba en
+> tu máquina y avísame si algo no compila o se ve distinto a lo esperado.
+
+### Backend
+
+Pendiente — se documentará en la Fase 4/5 (chat con IA y conexión real), cuando
+exista código de backend que instalar y ejecutar.
 
 ## Agregar un agente nuevo
 
