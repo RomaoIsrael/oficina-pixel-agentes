@@ -7,7 +7,12 @@ import { setupTouchControls, isLikelyTouchDevice } from "./input/TouchControls";
 import { touchInput } from "./input/sharedInput";
 
 const config: Phaser.Types.Core.GameConfig = {
-  type: Phaser.AUTO,
+  // Canvas en vez de WebGL: el arte placeholder de la Fase 1 es todo color
+  // plano, no necesita GPU, y algunas maquinas corporativas/virtualizadas
+  // tienen GPUs/drivers WebGL poco confiables (causaba errores intermitentes
+  // al cambiar de textura). Se puede revisar en la Fase 2 si hace falta mas
+  // rendimiento con sprites reales.
+  type: Phaser.CANVAS,
   parent: "game-root",
   backgroundColor: "#0a0a12",
   pixelArt: true,

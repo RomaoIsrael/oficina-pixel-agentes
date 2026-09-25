@@ -21,6 +21,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private input: InputState;
   private walkFrameTimer = 0;
   private walkFrameIndex: 0 | 1 = 0;
+  private lastAppliedFrame = "down-0";
+  private textureSwapWarned = false;
 
   constructor(scene: Phaser.Scene, x: number, y: number, input: InputState) {
     super(scene, x, y, "player-atlas", "down-0");
@@ -73,6 +75,22 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       this.walkFrameIndex = 0;
     }
 
-    this.setTexture("player-atlas", `${this.facing}-${this.walkFrameIndex}`);
+    // Solo se cambia la textura cuando el frame realmente cambio (evita
+    // llamar setTexture 60 veces por segundo sin necesidad), y se protege
+    // con try/catch: si el cambio de frame falla por algo del entorno
+    // (driver de GPU, etc.), el jugador sigue moviendose con la ultima
+    // textura visible en vez de congelar todo el juego.
+    const frameKey = `${this.facing}-${this.walkFrameIndex}`;
+    if (frameKey !== this.lastAppliedFrame) {
+      try {
+        this.setTexture("player-atlas", frameKey);
+        this.lastAppliedFrame = frameKey;
+      } catch (err) {
+        if (!this.textureSwapWarned) {
+          this.textureSwapWarned = true;
+          console.warn("No se pudo cambiar el frame del jugador; el movimiento sigue funcionando.", err);
+        }
+      }
+    }
   }
 }
