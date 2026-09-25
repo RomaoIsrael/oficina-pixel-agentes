@@ -140,13 +140,16 @@ export class BootScene extends Phaser.Scene {
     for (const facing of facings) {
       this.anims.create({
         key: `walk-${facing}`,
-        frames: [{ key: `player-${facing}-0` }, { key: `player-${facing}-1` }],
+        frames: [
+          { key: `player-${facing}-0`, frame: "__BASE" },
+          { key: `player-${facing}-1`, frame: "__BASE" },
+        ],
         frameRate: 6,
         repeat: -1,
       });
       this.anims.create({
         key: `idle-${facing}`,
-        frames: [{ key: `player-${facing}-0` }],
+        frames: [{ key: `player-${facing}-0`, frame: "__BASE" }],
         frameRate: 1,
       });
     }
