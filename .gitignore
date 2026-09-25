@@ -10,7 +10,8 @@
 .env.*
 !.env.example
 
-# Node / frontend (Vite + TypeScript + Phaser)
+# Node (por si algun script auxiliar futuro lo usa; el motor de la oficina
+# en si -- oficina.html -- no necesita Node ni build)
 node_modules/
 dist/
 dist-ssr/

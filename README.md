@@ -13,8 +13,8 @@ de Nintendo).
 ## Estado del proyecto
 
 En construcción — Fase 1 (motor de la oficina): mapa completo con las 8 áreas,
-colisiones, jugador (teclado + táctil), cámara y pantalla de inicio. Ver `docs/` para
-los documentos de integración de la Fase 0.
+colisiones, jugador y los tres agentes (teclado + táctil), cámara y pantalla de inicio.
+Ver `docs/` para los documentos de integración de la Fase 0.
 
 ## Repositorios hermanos
 
@@ -27,7 +27,13 @@ Este proyecto integra tres programas existentes, clonados como carpetas **herman
 
 ## Arquitectura (resumen)
 
-- **Frontend**: Vite + TypeScript + Phaser 3, pathfinding A\* (easystar.js).
+- **Motor de la oficina**: un solo archivo HTML (`oficina.html`) con JavaScript plano y
+  Canvas 2D — **sin Node, sin npm, sin paso de compilación**. Se abre directo con doble
+  clic en el navegador, igual que `Garmin_Connect_Summary/garmin-ai/dashboard.html` y
+  `practica_perfiles_analistas/index.html`. Se eligió este enfoque (en vez de
+  Vite + TypeScript + Phaser 3, usado en un primer intento) porque requería instalar
+  Node.js y depender de WebGL, lo que causó varios problemas en equipos corporativos
+  restringidos — ver el historial de commits para el detalle de esa iteración.
 - **Backend**: Python + FastAPI — orquesta agentes (API de Anthropic con tool use) y
   hace de puente hacia los tres programas reales mediante adaptadores
   (`backend/adapters/`).
@@ -39,36 +45,24 @@ Más detalle en `docs/` conforme avancen las fases.
 
 ## Instalación y ejecución
 
-### Frontend (motor de la oficina)
+### Motor de la oficina
 
-Requiere [Node.js](https://nodejs.org/) 18 o superior.
+**No requiere instalar nada.** Descarga (o clona) este repositorio y abre
+`oficina.html` con doble clic — se abre en tu navegador por defecto.
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Abre la URL que muestra la terminal (por defecto `http://localhost:5173`). Deberías
-ver la pantalla de título ("OFICINA PIXEL DE AGENTES" / "PRESIONA START"); al
-presionar cualquier tecla o tocar la pantalla entras a la oficina y puedes caminar
-con las flechas/WASD (o la cruceta táctil en celular/tablet). El nombre del área
-donde estás parado se muestra arriba a la izquierda.
-
-Otros comandos útiles:
-
-```bash
-npm run typecheck   # solo revisa tipos, sin generar nada
-npm run build        # build de producción en frontend/dist/
-node scripts/validate-map.mjs   # verifica que todas las areas del mapa sean alcanzables
-```
+Deberías ver la pantalla de título ("OFICINA PIXEL DE AGENTES" / "PRESIONA START"); al
+presionar cualquier tecla o tocar la pantalla entras a la oficina y puedes caminar con
+las flechas/WASD (o la cruceta táctil en celular/tablet). El nombre del área donde
+estás parado se muestra arriba a la izquierda. Vera, Ramiro y Aurelio ya aparecen de
+pie junto a su escritorio (todavía sin rutinas ni diálogo — eso llega en fases
+siguientes).
 
 > **Nota de esta sesión**: el entorno donde se escribió este código no tiene salida a
-> `registry.npmjs.org` (política de red del sandbox), así que no pude correr
-> `npm install` ni ver la app corriendo acá. Sí pude validar la sintaxis con `tsc
-> --noEmit` (sin resolver el paquete `phaser`, que requiere estar instalado) y la
-> conectividad del mapa con `validate-map.mjs`. Por favor corre los pasos de arriba en
-> tu máquina y avísame si algo no compila o se ve distinto a lo esperado.
+> internet para descargar paquetes (ni npm ni pip), así que la verificación se hizo con
+> `node --check` (sintaxis de JavaScript) y comparando las coordenadas del mapa contra
+> la versión anterior ya validada con un flood-fill (todas las áreas alcanzables desde
+> la recepción). No pude abrir el archivo en un navegador real acá — pruébalo en tu
+> máquina y avísame si algo no se ve como se espera.
 
 ### Backend
 

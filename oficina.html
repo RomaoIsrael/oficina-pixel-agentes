@@ -1,0 +1,696 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>Oficina Pixel de Agentes</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: #0a0a12; overflow: hidden; overscroll-behavior: none;
+    font-family: "Segoe UI", system-ui, sans-serif;
+  }
+  #game-root { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+  #game {
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+  }
+  #area-label {
+    position: fixed; top: 10px; left: 10px; z-index: 5;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 12px; color: #fff; background: #14141ccc;
+    padding: 4px 8px; border: 1px solid #ffffff33; border-radius: 4px;
+    display: none;
+  }
+  #touch-controls {
+    position: fixed; inset: 0; pointer-events: none; display: none; z-index: 10;
+  }
+  body.touch-active #touch-controls { display: block; }
+  body.touch-active #hint-desktop { display: none; }
+  .tc-dpad, .tc-buttons {
+    position: absolute; bottom: max(18px, env(safe-area-inset-bottom, 0px));
+    pointer-events: auto; user-select: none; -webkit-user-select: none; touch-action: none;
+  }
+  .tc-dpad { left: 18px; width: 132px; height: 132px; }
+  .tc-buttons { right: 18px; display: flex; gap: 14px; align-items: flex-end; }
+  .tc-btn {
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(20,20,30,0.55); border: 2px solid rgba(255,255,255,0.35);
+    color: #fff; font-weight: 700; border-radius: 10px; touch-action: none;
+  }
+  .tc-btn:active, .tc-btn.pressed { background: rgba(255,255,255,0.35); }
+  .tc-dpad-btn { position: absolute; width: 44px; height: 44px; font-size: 18px; border-radius: 8px; }
+  .tc-dpad-up { top: 0; left: 44px; }
+  .tc-dpad-down { bottom: 0; left: 44px; }
+  .tc-dpad-left { top: 44px; left: 0; }
+  .tc-dpad-right { top: 44px; right: 0; }
+  .tc-round { width: 60px; height: 60px; border-radius: 50%; font-size: 16px; }
+  #rotate-hint {
+    position: fixed; inset: 0; z-index: 20; display: none; align-items: center; justify-content: center;
+    flex-direction: column; gap: 10px; background: #0a0a12; color: #fff; text-align: center; padding: 24px;
+  }
+  #rotate-hint.visible { display: flex; }
+  #rotate-hint .icon { font-size: 42px; }
+</style>
+</head>
+<body>
+  <div id="game-root"><canvas id="game"></canvas></div>
+  <div id="area-label"></div>
+  <div id="touch-controls" aria-hidden="true">
+    <div class="tc-dpad">
+      <div class="tc-btn tc-dpad-btn tc-dpad-up" data-dir="up">&#9650;</div>
+      <div class="tc-btn tc-dpad-btn tc-dpad-down" data-dir="down">&#9660;</div>
+      <div class="tc-btn tc-dpad-btn tc-dpad-left" data-dir="left">&#9664;</div>
+      <div class="tc-btn tc-dpad-btn tc-dpad-right" data-dir="right">&#9654;</div>
+    </div>
+    <div class="tc-buttons">
+      <div class="tc-btn tc-round" data-action="b">B</div>
+      <div class="tc-btn tc-round" data-action="a">A</div>
+    </div>
+  </div>
+  <div id="rotate-hint"><div class="icon">&#8635;</div><div>Gira tu celular en horizontal para una mejor experiencia</div></div>
+
+<script>
+"use strict";
+
+/* =====================================================================
+ * Oficina Pixel de Agentes — motor en un solo archivo, sin dependencias.
+ * JavaScript plano + Canvas 2D. No requiere Node, npm ni build: se abre
+ * directo en el navegador (igual que los otros programas de Romao).
+ * ===================================================================== */
+
+/* ---------- Paleta (original, inspirada en Game Boy Color pero ampliada) ---------- */
+const Palette = {
+  wall: "#241d38", wallTop: "#352a52",
+  corridorFloor: "#b9c7d6", corridorFloorDark: "#a2b2c4",
+  receptionFloor: "#ecdcb8", receptionFloorDark: "#dbc89e",
+  qaFloor: "#f4c69c", qaFloorDark: "#e2a878",
+  dataFloor: "#a3e2de", dataFloorDark: "#84c9c4",
+  studyFloor: "#c1e6a8", studyFloorDark: "#a4d186",
+  cafeteriaFloor: "#f2dba8", cafeteriaFloorDark: "#dfc287",
+  meetingFloor: "#cdbaf0", meetingFloorDark: "#b29ddc",
+  directorFloor: "#f5d47c", directorFloorDark: "#e2ba57",
+  freeDeskFloor: "#d8d8d0", freeDeskFloorDark: "#c1c1b6",
+
+  deskWood: "#8f5f38", deskWoodDark: "#6d4426", deskWoodLight: "#a9764a",
+  bookshelf: "#6d4426", bookshelfDark: "#4f3018",
+  counter: "#5c4634", plant: "#4fa156", plantDark: "#357a3b", plantPot: "#8a5a34",
+
+  outline: "rgba(18,14,10,0.62)",
+  skinLight: "#f3cda3", skinMed: "#e5b587",
+};
+
+/* ---------- Config del mapa ---------- */
+const TILE = 16, COLS = 48, ROWS = 30;
+const MAP_W = COLS * TILE, MAP_H = ROWS * TILE;
+const VW = 480, VH = 270; // resolucion virtual
+
+/* ---------- Tipos de tile ---------- */
+const T = {
+  WALL: 0, CORRIDOR: 1, RECEPTION: 2, QA: 3, DATA: 4, STUDY: 5,
+  CAFETERIA: 6, MEETING: 7, DIRECTOR: 8, FREEDESK: 9,
+};
+const WALKABLE = new Set([T.CORRIDOR, T.RECEPTION, T.QA, T.DATA, T.STUDY, T.CAFETERIA, T.MEETING, T.DIRECTOR, T.FREEDESK]);
+
+const TILE_COLORS = {
+  [T.WALL]: [Palette.wall, Palette.wallTop],
+  [T.CORRIDOR]: [Palette.corridorFloor, Palette.corridorFloorDark],
+  [T.RECEPTION]: [Palette.receptionFloor, Palette.receptionFloorDark],
+  [T.QA]: [Palette.qaFloor, Palette.qaFloorDark],
+  [T.DATA]: [Palette.dataFloor, Palette.dataFloorDark],
+  [T.STUDY]: [Palette.studyFloor, Palette.studyFloorDark],
+  [T.CAFETERIA]: [Palette.cafeteriaFloor, Palette.cafeteriaFloorDark],
+  [T.MEETING]: [Palette.meetingFloor, Palette.meetingFloorDark],
+  [T.DIRECTOR]: [Palette.directorFloor, Palette.directorFloorDark],
+  [T.FREEDESK]: [Palette.freeDeskFloor, Palette.freeDeskFloorDark],
+};
+
+/* ---------- Construcción del mapa (mismo algoritmo validado antes) ---------- */
+function fillRect(grid, x, y, w, h, tile) {
+  for (let r = y; r < y + h; r++) {
+    for (let c = x; c < x + w; c++) {
+      if (r >= 0 && r < grid.length && c >= 0 && c < grid[0].length) grid[r][c] = tile;
+    }
+  }
+}
+
+function buildOfficeMap() {
+  const grid = Array.from({ length: ROWS }, () => Array(COLS).fill(T.WALL));
+  const areas = [];
+
+  fillRect(grid, 1, 13, 46, 2, T.CORRIDOR);
+  fillRect(grid, 22, 15, 2, 13, T.CORRIDOR);
+  areas.push({ id: "corridor", name: "Pasillo", rect: { x: 1, y: 13, w: 46, h: 2 } });
+
+  function room(id, name, x, y, w, h, tile) {
+    fillRect(grid, x, y, w, h, tile);
+    areas.push({ id, name, rect: { x, y, w, h } });
+  }
+  room("qa", "Área Técnica QA/QC", 1, 1, 14, 11, T.QA);
+  room("meeting", "Sala de Reuniones", 17, 1, 13, 11, T.MEETING);
+  room("data", "Área de Datos y Rendimiento", 33, 1, 14, 11, T.DATA);
+  room("study", "Sala de Estudio", 1, 16, 14, 8, T.STUDY);
+  room("director", "Oficina del Director", 16, 16, 5, 8, T.DIRECTOR);
+  room("freedesk", "Escritorios Libres", 25, 16, 8, 8, T.FREEDESK);
+  room("cafeteria", "Cafetería", 34, 16, 13, 8, T.CAFETERIA);
+  room("reception", "Recepción", 14, 25, 20, 4, T.RECEPTION);
+
+  fillRect(grid, 6, 12, 2, 1, T.QA);
+  fillRect(grid, 22, 12, 2, 1, T.MEETING);
+  fillRect(grid, 39, 12, 2, 1, T.DATA);
+  fillRect(grid, 6, 15, 2, 1, T.STUDY);
+  fillRect(grid, 21, 19, 1, 2, T.DIRECTOR);
+  fillRect(grid, 24, 19, 1, 2, T.FREEDESK);
+  fillRect(grid, 39, 15, 2, 1, T.CAFETERIA);
+  fillRect(grid, 20, 29, 4, 1, T.RECEPTION);
+
+  const furniture = [
+    { x: 3, y: 3, w: 3, h: 1, kind: "desk" },
+    { x: 36, y: 3, w: 3, h: 1, kind: "desk" },
+    { x: 3, y: 18, w: 3, h: 1, kind: "desk" },
+    { x: 20, y: 4, w: 6, h: 2, kind: "table" },
+    { x: 17, y: 18, w: 2, h: 2, kind: "desk", label: "Romão" },
+    { x: 36, y: 19, w: 4, h: 2, kind: "counter" },
+    { x: 26, y: 17, w: 2, h: 1, kind: "desk" },
+    { x: 30, y: 17, w: 2, h: 1, kind: "desk" },
+    { x: 26, y: 21, w: 2, h: 1, kind: "desk" },
+    { x: 30, y: 21, w: 2, h: 1, kind: "desk" },
+    { x: 3, y: 8, w: 2, h: 2, kind: "shelf" },
+    { x: 38, y: 20, w: 1, h: 1, kind: "plant" },
+    { x: 15, y: 26, w: 1, h: 1, kind: "plant" },
+  ];
+
+  return { grid, areas, furniture, spawn: { x: 23 * TILE + TILE / 2, y: 27 * TILE + TILE / 2 } };
+}
+
+function areaAt(map, px, py) {
+  const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
+  for (const a of map.areas) {
+    if (tx >= a.rect.x && tx < a.rect.x + a.rect.w && ty >= a.rect.y && ty < a.rect.y + a.rect.h) return a;
+  }
+  return null;
+}
+
+/* ---------- Colisión: paredes fusionadas por franjas + muebles ---------- */
+function buildWallRects(map) {
+  const rects = [];
+  for (let row = 0; row < ROWS; row++) {
+    let start = -1;
+    for (let col = 0; col <= COLS; col++) {
+      const isWall = col < COLS && map.grid[row][col] === T.WALL;
+      if (isWall && start === -1) start = col;
+      else if (!isWall && start !== -1) {
+        rects.push({ x: start * TILE, y: row * TILE, w: (col - start) * TILE, h: TILE });
+        start = -1;
+      }
+    }
+  }
+  return rects;
+}
+
+function rectsOverlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+/* ---------- Sprites de tiles y muebles (pre-renderizados a canvas chico) ---------- */
+function makeTileSprite(base, dark, isWall) {
+  const c = document.createElement("canvas");
+  c.width = TILE; c.height = TILE;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, TILE, TILE);
+  ctx.fillStyle = dark;
+  ctx.fillRect(0, TILE - 3, TILE, 3);
+  ctx.fillRect(TILE - 3, 0, 3, TILE);
+  if (isWall) {
+    ctx.fillStyle = Palette.wallTop;
+    ctx.fillRect(0, 0, TILE, 5);
+    ctx.fillStyle = "rgba(0,0,0,0.22)";
+    ctx.fillRect(0, 8, TILE, 1);
+    ctx.fillRect(0, 12, TILE, 1);
+  } else {
+    ctx.fillStyle = "rgba(255,255,255,0.18)";
+    ctx.fillRect(2, 2, 2, 2);
+    ctx.fillRect(11, 9, 2, 2);
+    ctx.fillStyle = "rgba(0,0,0,0.06)";
+    ctx.fillRect(6, 6, 3, 3);
+  }
+  ctx.strokeStyle = "rgba(0,0,0,0.14)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0.5, 0.5, TILE - 1, TILE - 1);
+  return c;
+}
+
+function makeFurnitureSprite(kind) {
+  const c = document.createElement("canvas");
+  c.width = TILE; c.height = TILE;
+  const ctx = c.getContext("2d");
+  if (kind === "plant") {
+    ctx.fillStyle = Palette.plantPot; ctx.fillRect(5, 11, 6, 4);
+    ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.fillRect(5, 13, 6, 2);
+    ctx.fillStyle = Palette.plant;
+    ctx.beginPath(); ctx.arc(8, 7, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = Palette.plantDark;
+    ctx.beginPath(); ctx.arc(10.5, 9, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = Palette.outline; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(8, 7, 5, 0, Math.PI * 2); ctx.stroke();
+    return c;
+  }
+  const base = kind === "shelf" ? Palette.bookshelf : kind === "counter" ? Palette.counter : Palette.deskWood;
+  const dark = kind === "shelf" ? Palette.bookshelfDark : Palette.deskWoodDark;
+  ctx.fillStyle = base; ctx.fillRect(1, 1, TILE - 2, TILE - 2);
+  ctx.fillStyle = dark; ctx.fillRect(1, TILE - 4, TILE - 2, 3);
+  ctx.fillStyle = Palette.deskWoodLight; ctx.fillRect(1, 1, TILE - 2, 2);
+  ctx.strokeStyle = Palette.outline; ctx.lineWidth = 1;
+  ctx.strokeRect(1, 1, TILE - 2, TILE - 2);
+  if (kind === "desk" || kind === "table") {
+    ctx.fillStyle = "#241d38"; ctx.fillRect(5, 3, 6, 3);
+    ctx.fillStyle = "#6fb8ff"; ctx.fillRect(6, 4, 4, 1);
+    ctx.fillStyle = "#2b2440"; ctx.fillRect(4, 6, 8, 1);
+  }
+  if (kind === "counter") {
+    ctx.fillStyle = "#e8ecef"; ctx.fillRect(3, 2, 5, 4);
+    ctx.fillStyle = "#8a5a34"; ctx.fillRect(4, 3, 3, 2);
+  }
+  if (kind === "shelf") {
+    ctx.fillStyle = "#c94f4f"; ctx.fillRect(3, 3, 2, 6);
+    ctx.fillStyle = "#4f8fc9"; ctx.fillRect(6, 3, 2, 6);
+    ctx.fillStyle = "#c9b34f"; ctx.fillRect(9, 3, 2, 6);
+  }
+  return c;
+}
+
+/* ---------- Personajes: cuerpo parametrizado por config, dibujado a mano ---------- */
+const CHAR_W = 16, CHAR_H = 22;
+
+const CHAR_CONFIGS = {
+  player: {
+    name: "Romão", skin: Palette.skinLight, hair: "#3a2a1e",
+    jacket: "#2e3f6e", jacketShade: "#213056", pants: "#20263a", shoes: "#3a2a1e",
+    style: "hair",
+  },
+  vera: {
+    name: "Vera Pulso", skin: Palette.skinLight, hair: "#3a2418",
+    jacket: "#17b3a6", jacketShade: "#0f8a80", pants: "#5b6472", shoes: "#eef1f3",
+    style: "ponytail", accent: "#f2c199",
+  },
+  ramiro: {
+    name: "Ing. Ramiro Sello", skin: Palette.skinMed, hair: "#4a4038",
+    jacket: "#e2711d", jacketShade: "#b8560f", pants: "#3a3a42", shoes: "#241d38",
+    style: "hardhat", hat: "#f6f6f0", hatShade: "#d9d9cd", mustache: "#4a4038", folder: "#c99a5b",
+  },
+  aurelio: {
+    name: "Profe Aurelio", skin: Palette.skinLight, hair: "#9a9a96",
+    jacket: "#3f8a4e", jacketShade: "#2c6636", pants: "#8a7a52", shoes: "#5a4a34",
+    style: "glasses", bowtie: "#7a2a2a",
+  },
+};
+
+function drawCharacter(ctx, cfg, frame, facing) {
+  const legA = frame === 0 ? 0 : 1;
+  const legB = 1 - legA;
+
+  // Piernas
+  ctx.fillStyle = cfg.pants;
+  ctx.fillRect(5, 16 + legA, 3, 5 - legA);
+  ctx.fillRect(9, 16 + legB, 3, 5 - legB);
+  // Zapatos
+  ctx.fillStyle = cfg.shoes;
+  ctx.fillRect(5, 20 + legA, 3, 2);
+  ctx.fillRect(9, 20 + legB, 3, 2);
+
+  // Brazos (detrás del torso, un tono más oscuro)
+  ctx.fillStyle = cfg.jacketShade;
+  ctx.fillRect(1, 10, 3, 6);
+  ctx.fillRect(12, 10, 3, 6);
+
+  // Carpeta bajo el brazo (Ramiro)
+  if (cfg.folder) {
+    ctx.fillStyle = cfg.folder;
+    ctx.fillRect(0, 12, 3, 5);
+    ctx.strokeStyle = Palette.outline; ctx.lineWidth = 1; ctx.strokeRect(0, 12, 3, 5);
+  }
+
+  // Torso (con sombreado a la derecha)
+  ctx.fillStyle = cfg.jacket;
+  ctx.fillRect(3, 9, 10, 8);
+  ctx.fillStyle = cfg.jacketShade;
+  ctx.fillRect(9, 9, 4, 8);
+
+  // Cuello/collar
+  ctx.fillStyle = cfg.skin;
+  ctx.fillRect(7, 8, 2, 2);
+
+  // Cabeza
+  ctx.fillStyle = cfg.skin;
+  ctx.beginPath(); ctx.arc(8, 6, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "rgba(0,0,0,0.10)";
+  ctx.beginPath(); ctx.arc(10, 7, 3, 0, Math.PI * 2); ctx.fill();
+
+  // Cabello / casco
+  if (cfg.style === "hardhat") {
+    ctx.fillStyle = cfg.hatShade;
+    ctx.fillRect(2, 3, 12, 2);
+    ctx.fillStyle = cfg.hat;
+    ctx.beginPath(); ctx.arc(8, 2, 5.2, Math.PI, 0); ctx.fill();
+    ctx.fillRect(3, 0, 10, 3);
+    ctx.strokeStyle = Palette.outline; ctx.lineWidth = 1;
+    ctx.strokeRect(2, 3, 12, 2);
+  } else {
+    ctx.fillStyle = cfg.hair;
+    ctx.beginPath(); ctx.arc(8, 4, 5.2, Math.PI, 0); ctx.fill();
+    ctx.fillRect(3, 3, 10, 3);
+    if (cfg.style === "ponytail" && facing !== "up") {
+      ctx.fillRect(12, 2, 3, 8);
+      ctx.beginPath(); ctx.arc(13.5, 10, 1.8, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // Rostro
+  if (facing === "down") {
+    ctx.fillStyle = "#241d38";
+    ctx.fillRect(6, 6, 1.3, 1.3);
+    ctx.fillRect(9, 6, 1.3, 1.3);
+    if (cfg.style === "glasses") {
+      ctx.strokeStyle = "#241d38"; ctx.lineWidth = 1;
+      ctx.strokeRect(4.8, 5, 2.6, 2.6);
+      ctx.strokeRect(8.6, 5, 2.6, 2.6);
+      ctx.beginPath(); ctx.moveTo(7.4, 6.2); ctx.lineTo(8.6, 6.2); ctx.stroke();
+    }
+    if (cfg.mustache) {
+      ctx.fillStyle = cfg.mustache;
+      ctx.fillRect(6, 8.2, 4, 1);
+    }
+    if (cfg.bowtie) {
+      ctx.fillStyle = cfg.bowtie;
+      ctx.fillRect(6.5, 8.5, 3, 2);
+      ctx.fillStyle = "#5a1a1a";
+      ctx.fillRect(7.4, 9, 1.2, 1);
+    }
+  } else if (facing === "left" || facing === "right") {
+    ctx.fillStyle = "#241d38";
+    ctx.fillRect(facing === "left" ? 4.5 : 10.2, 6, 1.3, 1.3);
+  }
+
+  // Smartwatch (Vera)
+  if (cfg.accent) {
+    ctx.fillStyle = cfg.accent;
+    ctx.fillRect(13, 15, 2, 2);
+  }
+
+  // Contorno general
+  ctx.strokeStyle = Palette.outline;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(3, 9, 10, 8);
+  ctx.beginPath(); ctx.arc(8, 6, 5, 0, Math.PI * 2); ctx.stroke();
+}
+
+function buildCharacterSprites(cfg) {
+  const facings = ["down", "up", "left", "right"];
+  const sprites = {};
+  facings.forEach((facing) => {
+    sprites[facing] = [0, 1].map((frame) => {
+      const c = document.createElement("canvas");
+      c.width = CHAR_W; c.height = CHAR_H;
+      const ctx = c.getContext("2d");
+      drawCharacter(ctx, cfg, frame, facing);
+      return c;
+    });
+  });
+  return sprites;
+}
+
+/* ---------- Estado del juego ---------- */
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+canvas.width = VW; canvas.height = VH;
+ctx.imageSmoothingEnabled = false;
+
+const map = buildOfficeMap();
+const solids = buildWallRects(map);
+for (const f of map.furniture) {
+  solids.push({ x: f.x * TILE, y: f.y * TILE, w: f.w * TILE, h: f.h * TILE });
+}
+
+const tileSprites = {};
+for (const [t, [base, dark]] of Object.entries(TILE_COLORS)) {
+  tileSprites[t] = makeTileSprite(base, dark, Number(t) === T.WALL);
+}
+const furnitureSprites = {};
+for (const kind of ["desk", "table", "shelf", "counter", "plant"]) {
+  furnitureSprites[kind] = makeFurnitureSprite(kind);
+}
+const charSprites = {
+  player: buildCharacterSprites(CHAR_CONFIGS.player),
+  vera: buildCharacterSprites(CHAR_CONFIGS.vera),
+  ramiro: buildCharacterSprites(CHAR_CONFIGS.ramiro),
+  aurelio: buildCharacterSprites(CHAR_CONFIGS.aurelio),
+};
+
+const player = { px: map.spawn.x, py: map.spawn.y, facing: "down", frame: 0, timer: 0 };
+
+// Agentes de pie junto a su escritorio (Fase 1: estáticos; en fases
+// siguientes tendrán rutinas y se podrá interactuar con ellos).
+const agents = [
+  { id: "ramiro", cfgKey: "ramiro", px: 4 * TILE + TILE / 2, py: 4 * TILE + TILE / 2, facing: "down" },
+  { id: "vera", cfgKey: "vera", px: 37 * TILE + TILE / 2, py: 4 * TILE + TILE / 2, facing: "down" },
+  { id: "aurelio", cfgKey: "aurelio", px: 4 * TILE + TILE / 2, py: 19 * TILE + TILE / 2, facing: "down" },
+];
+for (const a of agents) {
+  solids.push({ x: a.px - 5, y: a.py - 16, w: 10, h: 16 });
+}
+
+let gameState = "title"; // "title" | "office"
+let titleBlink = 0;
+
+/* ---------- Input ---------- */
+const keyState = { up: false, down: false, left: false, right: false, action: false };
+const touchState = { up: false, down: false, left: false, right: false, action: false };
+
+const KEY_MAP = {
+  ArrowUp: "up", KeyW: "up",
+  ArrowDown: "down", KeyS: "down",
+  ArrowLeft: "left", KeyA: "left",
+  ArrowRight: "right", KeyD: "right",
+  KeyZ: "action", Enter: "action", Space: "action",
+};
+
+window.addEventListener("keydown", (e) => {
+  const k = KEY_MAP[e.code];
+  if (k) { keyState[k] = true; e.preventDefault(); }
+  if (gameState === "title") startGame();
+});
+window.addEventListener("keyup", (e) => {
+  const k = KEY_MAP[e.code];
+  if (k) { keyState[k] = false; e.preventDefault(); }
+});
+canvas.addEventListener("pointerdown", () => { if (gameState === "title") startGame(); });
+
+function isLikelyTouchDevice() {
+  return "ontouchstart" in window || navigator.maxTouchPoints > 0;
+}
+function setupTouchControls() {
+  if (!isLikelyTouchDevice()) return;
+  document.body.classList.add("touch-active");
+  const container = document.getElementById("touch-controls");
+  const dirMap = { up: "up", down: "down", left: "left", right: "right" };
+  container.querySelectorAll("[data-dir]").forEach((el) => {
+    const key = dirMap[el.dataset.dir];
+    const press = (e) => { e.preventDefault(); touchState[key] = true; el.classList.add("pressed"); };
+    const release = (e) => { e.preventDefault(); touchState[key] = false; el.classList.remove("pressed"); };
+    el.addEventListener("pointerdown", press);
+    el.addEventListener("pointerup", release);
+    el.addEventListener("pointercancel", release);
+    el.addEventListener("pointerleave", release);
+  });
+  container.querySelectorAll("[data-action]").forEach((el) => {
+    const press = (e) => { e.preventDefault(); touchState.action = true; el.classList.add("pressed"); };
+    const release = (e) => { e.preventDefault(); touchState.action = false; el.classList.remove("pressed"); };
+    el.addEventListener("pointerdown", press);
+    el.addEventListener("pointerup", release);
+    el.addEventListener("pointercancel", release);
+    el.addEventListener("pointerleave", release);
+  });
+}
+setupTouchControls();
+
+function startGame() {
+  gameState = "office";
+  document.getElementById("area-label").style.display = "block";
+}
+
+/* ---------- Movimiento y colisión (por ejes, simple y robusto) ---------- */
+function collides(box, ignore) {
+  for (const r of solids) {
+    if (r === ignore) continue;
+    if (rectsOverlap(box, r)) return true;
+  }
+  return false;
+}
+
+function tryMove(px, py, dx, dy) {
+  let nx = px + dx;
+  let box = { x: nx - 5, y: py - 8, w: 10, h: 8 };
+  if (nx - 5 >= 0 && nx + 5 <= MAP_W && !collides(box)) px = nx;
+
+  let ny = py + dy;
+  box = { x: px - 5, y: ny - 8, w: 10, h: 8 };
+  if (ny - 8 >= 0 && ny <= MAP_H && !collides(box)) py = ny;
+
+  return { px, py };
+}
+
+/* ---------- Loop principal ---------- */
+const SPEED = 90; // px/seg
+const WALK_FRAME_MS = 160;
+let lastTime = performance.now();
+let currentAreaId = null;
+
+function update(dt) {
+  if (gameState !== "office") {
+    titleBlink += dt;
+    return;
+  }
+
+  const up = keyState.up || touchState.up;
+  const down = keyState.down || touchState.down;
+  const left = keyState.left || touchState.left;
+  const right = keyState.right || touchState.right;
+
+  let vx = 0, vy = 0;
+  if (left) vx -= 1;
+  if (right) vx += 1;
+  if (up) vy -= 1;
+  if (down) vy += 1;
+  if (vx !== 0 && vy !== 0) { vx *= Math.SQRT1_2; vy *= Math.SQRT1_2; }
+
+  const moving = vx !== 0 || vy !== 0;
+  if (moving) {
+    if (Math.abs(vx) > Math.abs(vy)) player.facing = vx > 0 ? "right" : "left";
+    else player.facing = vy > 0 ? "down" : "up";
+    player.timer += dt * 1000;
+    if (player.timer >= WALK_FRAME_MS) { player.timer = 0; player.frame = player.frame === 0 ? 1 : 0; }
+  } else {
+    player.timer = 0; player.frame = 0;
+  }
+
+  const moved = tryMove(player.px, player.py, vx * SPEED * dt, vy * SPEED * dt);
+  player.px = moved.px; player.py = moved.py;
+
+  const area = areaAt(map, player.px, player.py);
+  if (area && area.id !== currentAreaId) {
+    currentAreaId = area.id;
+    document.getElementById("area-label").textContent = area.name;
+  }
+}
+
+function drawTiles() {
+  const camX = clamp(player.px - VW / 2, 0, Math.max(0, MAP_W - VW));
+  const camY = clamp(player.py - VH / 2, 0, Math.max(0, MAP_H - VH));
+
+  const startCol = Math.max(0, Math.floor(camX / TILE) - 1);
+  const endCol = Math.min(COLS - 1, Math.ceil((camX + VW) / TILE) + 1);
+  const startRow = Math.max(0, Math.floor(camY / TILE) - 1);
+  const endRow = Math.min(ROWS - 1, Math.ceil((camY + VH) / TILE) + 1);
+
+  ctx.save();
+  ctx.translate(-camX, -camY);
+
+  for (let row = startRow; row <= endRow; row++) {
+    for (let col = startCol; col <= endCol; col++) {
+      const t = map.grid[row][col];
+      ctx.drawImage(tileSprites[t], col * TILE, row * TILE);
+    }
+  }
+
+  for (const f of map.furniture) {
+    const sprite = furnitureSprites[f.kind];
+    if (!sprite) continue;
+    for (let ty = 0; ty < f.h; ty++) {
+      for (let tx = 0; tx < f.w; tx++) {
+        ctx.drawImage(sprite, (f.x + tx) * TILE, (f.y + ty) * TILE);
+      }
+      if (f.label) {
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "7px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText(f.label, (f.x + f.w / 2) * TILE, f.y * TILE - 2);
+      }
+    }
+  }
+
+  const drawables = [player, ...agents].map((e) => ({
+    e, sortY: e.py, sprite: (e === player ? charSprites.player : charSprites[e.cfgKey])[e.facing][e.frame || 0],
+  }));
+  drawables.sort((a, b) => a.sortY - b.sortY);
+  for (const d of drawables) {
+    ctx.drawImage(d.sprite, Math.round(d.e.px - CHAR_W / 2), Math.round(d.e.py - CHAR_H + 6));
+    if (d.e !== player) {
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "7px monospace";
+      ctx.textAlign = "center";
+      ctx.fillText(CHAR_CONFIGS[d.e.cfgKey].name, d.e.px, d.e.py - CHAR_H + 2);
+    }
+  }
+
+  ctx.restore();
+}
+
+function drawTitle() {
+  ctx.fillStyle = "#0a0a12";
+  ctx.fillRect(0, 0, VW, VH);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 22px monospace";
+  ctx.textAlign = "center";
+  ctx.fillText("OFICINA PIXEL", VW / 2, VH / 2 - 40);
+  ctx.fillText("DE AGENTES", VW / 2, VH / 2 - 14);
+
+  const blink = Math.sin(titleBlink * 5) > -0.3;
+  if (blink) {
+    ctx.fillStyle = "#f2c199";
+    ctx.font = "bold 12px monospace";
+    ctx.fillText("PRESIONA START", VW / 2, VH / 2 + 40);
+  }
+
+  ctx.fillStyle = "#8a8a92";
+  ctx.font = "8px monospace";
+  ctx.fillText("v0.2 — motor sin dependencias", VW / 2, VH - 14);
+}
+
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+function render() {
+  if (gameState === "title") { drawTitle(); return; }
+  ctx.fillStyle = "#0a0a12";
+  ctx.fillRect(0, 0, VW, VH);
+  drawTiles();
+}
+
+function loop(now) {
+  const dt = Math.min(0.05, (now - lastTime) / 1000);
+  lastTime = now;
+  update(dt);
+  render();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* ---------- Escalado pixel-perfect y aviso de rotar el celular ---------- */
+function resize() {
+  const scale = Math.max(1, Math.floor(Math.min(window.innerWidth / VW, window.innerHeight / VH)));
+  canvas.style.width = VW * scale + "px";
+  canvas.style.height = VH * scale + "px";
+
+  const hint = document.getElementById("rotate-hint");
+  const isPortrait = window.innerHeight > window.innerWidth;
+  const isSmallScreen = Math.min(window.innerWidth, window.innerHeight) < 500;
+  hint.classList.toggle("visible", isLikelyTouchDevice() && isPortrait && isSmallScreen);
+}
+window.addEventListener("resize", resize);
+window.addEventListener("orientationchange", resize);
+resize();
+</script>
+</body>
+</html>
