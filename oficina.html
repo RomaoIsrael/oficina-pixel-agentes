@@ -462,12 +462,70 @@ for (const a of agents) {
   solids.push({ x: a.px - 5, y: a.py - 16, w: 10, h: 16 });
 }
 
-let gameState = "title"; // "title" | "office"
-let titleBlink = 0;
+let gameState = "title"; // "title" | "office" | "dialog"
+let blinkTimer = 0;
+
+/* ---------- Interacción con agentes (cuadro de diálogo estilo Game Boy) ---------- */
+const MENU_OPTIONS = ["HABLAR", "ENCARGAR TAREA", "VER ESTADO", "HISTORIAL"];
+const AGENT_CONTENT = {
+  ramiro: {
+    greeting: "Sin firma no hay dossier. ¿En qué proyecto trabajamos hoy?",
+    tasks: ["Armar dossier de un proyecto", "Validar el proyecto actual", "¿Qué documentos tienen firma?"],
+    status: "Disponible. Sin generaciones registradas todavía.",
+  },
+  vera: {
+    greeting: "¡Hoy vamos por los 10.000 pasos! ¿Cómo va tu semana?",
+    tasks: ["Sincronizar mis últimos días", "Reporte de salud y rutina sugerida", "¿Cómo dormí anoche?"],
+    status: "Disponible. Sin sincronizaciones todavía.",
+  },
+  aurelio: {
+    greeting: "¡Ah, justo a tiempo! ¿Listo para una pregunta sorpresa?",
+    tasks: ["10 preguntas de LOSEP", "Examen de razonamiento espacial", "Generar preguntas desde un PDF"],
+    status: "Disponible. Sin sesiones de práctica todavía.",
+  },
+};
+const INTERACT_RANGE = 22;
+let dialog = null;
+let nearAgent = null;
+
+function nearestAgentInRange() {
+  let best = null, bestDist = INTERACT_RANGE;
+  for (const a of agents) {
+    const d = Math.hypot(a.px - player.px, a.py - player.py);
+    if (d < bestDist) { bestDist = d; best = a; }
+  }
+  return best;
+}
+function openDialog(agentId) {
+  dialog = { agentId, mode: "menu", cursor: 0, subCursor: 0 };
+  gameState = "dialog";
+}
+function closeDialog() {
+  dialog = null;
+  gameState = "office";
+}
+function showText(text, returnMode) {
+  dialog.mode = "text";
+  dialog.text = text;
+  dialog.shown = 0;
+  dialog.returnMode = returnMode || "menu";
+}
 
 /* ---------- Input ---------- */
-const keyState = { up: false, down: false, left: false, right: false, action: false };
-const touchState = { up: false, down: false, left: false, right: false, action: false };
+const keyState = { up: false, down: false, left: false, right: false, action: false, cancel: false };
+const touchState = { up: false, down: false, left: false, right: false, action: false, cancel: false };
+let prevInput = { up: false, down: false, left: false, right: false, action: false, cancel: false };
+
+function currentInput() {
+  return {
+    up: keyState.up || touchState.up,
+    down: keyState.down || touchState.down,
+    left: keyState.left || touchState.left,
+    right: keyState.right || touchState.right,
+    action: keyState.action || touchState.action,
+    cancel: keyState.cancel || touchState.cancel,
+  };
+}
 
 const KEY_MAP = {
   ArrowUp: "up", KeyW: "up",
@@ -475,6 +533,7 @@ const KEY_MAP = {
   ArrowLeft: "left", KeyA: "left",
   ArrowRight: "right", KeyD: "right",
   KeyZ: "action", Enter: "action", Space: "action",
+  KeyX: "cancel", Escape: "cancel",
 };
 
 window.addEventListener("keydown", (e) => {
@@ -506,8 +565,9 @@ function setupTouchControls() {
     el.addEventListener("pointerleave", release);
   });
   container.querySelectorAll("[data-action]").forEach((el) => {
-    const press = (e) => { e.preventDefault(); touchState.action = true; el.classList.add("pressed"); };
-    const release = (e) => { e.preventDefault(); touchState.action = false; el.classList.remove("pressed"); };
+    const target = el.dataset.action === "a" ? "action" : "cancel";
+    const press = (e) => { e.preventDefault(); touchState[target] = true; el.classList.add("pressed"); };
+    const release = (e) => { e.preventDefault(); touchState[target] = false; el.classList.remove("pressed"); };
     el.addEventListener("pointerdown", press);
     el.addEventListener("pointerup", release);
     el.addEventListener("pointercancel", release);
@@ -548,22 +608,12 @@ const WALK_FRAME_MS = 160;
 let lastTime = performance.now();
 let currentAreaId = null;
 
-function update(dt) {
-  if (gameState !== "office") {
-    titleBlink += dt;
-    return;
-  }
-
-  const up = keyState.up || touchState.up;
-  const down = keyState.down || touchState.down;
-  const left = keyState.left || touchState.left;
-  const right = keyState.right || touchState.right;
-
+function updateOffice(dt, input, justAction) {
   let vx = 0, vy = 0;
-  if (left) vx -= 1;
-  if (right) vx += 1;
-  if (up) vy -= 1;
-  if (down) vy += 1;
+  if (input.left) vx -= 1;
+  if (input.right) vx += 1;
+  if (input.up) vy -= 1;
+  if (input.down) vy += 1;
   if (vx !== 0 && vy !== 0) { vx *= Math.SQRT1_2; vy *= Math.SQRT1_2; }
 
   const moving = vx !== 0 || vy !== 0;
@@ -584,6 +634,61 @@ function update(dt) {
     currentAreaId = area.id;
     document.getElementById("area-label").textContent = area.name;
   }
+
+  nearAgent = nearestAgentInRange();
+  if (nearAgent && justAction) openDialog(nearAgent.id);
+}
+
+const TEXT_CHARS_PER_SEC = 45;
+
+function updateDialog(dt, justAction, justCancel, justUp, justDown) {
+  if (dialog.mode === "menu") {
+    if (justUp) dialog.cursor = (dialog.cursor + MENU_OPTIONS.length - 1) % MENU_OPTIONS.length;
+    if (justDown) dialog.cursor = (dialog.cursor + 1) % MENU_OPTIONS.length;
+    if (justCancel) { closeDialog(); return; }
+    if (justAction) {
+      const opt = MENU_OPTIONS[dialog.cursor];
+      const content = AGENT_CONTENT[dialog.agentId];
+      if (opt === "HABLAR") showText(content.greeting, "menu");
+      else if (opt === "ENCARGAR TAREA") { dialog.mode = "submenu"; dialog.subCursor = 0; }
+      else if (opt === "VER ESTADO") showText("Estado: " + content.status, "menu");
+      else if (opt === "HISTORIAL") showText("Historial: sin tareas registradas todavía.", "menu");
+    }
+  } else if (dialog.mode === "submenu") {
+    const tasks = AGENT_CONTENT[dialog.agentId].tasks;
+    if (justUp) dialog.subCursor = (dialog.subCursor + tasks.length - 1) % tasks.length;
+    if (justDown) dialog.subCursor = (dialog.subCursor + 1) % tasks.length;
+    if (justCancel) { dialog.mode = "menu"; return; }
+    if (justAction) {
+      const chosen = tasks[dialog.subCursor];
+      showText('Anotado: "' + chosen + '". Esto se conectará con el programa real en una fase siguiente.', "menu");
+    }
+  } else if (dialog.mode === "text") {
+    dialog.shown = Math.min(dialog.text.length, dialog.shown + dt * TEXT_CHARS_PER_SEC);
+    const done = dialog.shown >= dialog.text.length;
+    if (justAction || justCancel) {
+      if (!done) dialog.shown = dialog.text.length;
+      else if (dialog.returnMode === "menu") dialog.mode = "menu";
+      else closeDialog();
+    }
+  }
+}
+
+function update(dt) {
+  blinkTimer += dt;
+  const input = currentInput();
+  const justAction = input.action && !prevInput.action;
+  const justCancel = input.cancel && !prevInput.cancel;
+  const justUp = input.up && !prevInput.up;
+  const justDown = input.down && !prevInput.down;
+
+  if (gameState === "dialog") {
+    updateDialog(dt, justAction, justCancel, justUp, justDown);
+  } else if (gameState === "office") {
+    updateOffice(dt, input, justAction);
+  }
+
+  prevInput = input;
 }
 
 function drawTiles() {
@@ -635,7 +740,71 @@ function drawTiles() {
     }
   }
 
+  if (nearAgent && gameState === "office") {
+    const bob = Math.sin(blinkTimer * 6) * 2;
+    ctx.fillStyle = "#f2c199";
+    ctx.font = "10px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("▼", nearAgent.px, nearAgent.py - CHAR_H - 4 + bob);
+  }
+
   ctx.restore();
+}
+
+/* ---------- Cuadro de diálogo estilo Game Boy ---------- */
+function wrapText(text, x, y, maxWidth, lineHeight) {
+  const words = text.split(" ");
+  let line = "", cy = y;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      ctx.fillText(line, x, cy);
+      line = w; cy += lineHeight;
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, cy);
+}
+
+function drawDialogBox() {
+  const boxX = 14, boxY = VH - 86, boxW = VW - 28, boxH = 76;
+
+  ctx.fillStyle = "#14141cf2";
+  ctx.fillRect(boxX, boxY, boxW, boxH);
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(boxX + 2, boxY + 2, boxW - 4, boxH - 4);
+  ctx.strokeStyle = "#f2c199";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(boxX + 6, boxY + 6, boxW - 12, boxH - 12);
+
+  const name = CHAR_CONFIGS[dialog.agentId].name;
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#f2c199";
+  ctx.font = "bold 10px monospace";
+  ctx.fillText(name, boxX + 14, boxY + 20);
+
+  if (dialog.mode === "menu" || dialog.mode === "submenu") {
+    const options = dialog.mode === "menu" ? MENU_OPTIONS : AGENT_CONTENT[dialog.agentId].tasks;
+    const cursor = dialog.mode === "menu" ? dialog.cursor : dialog.subCursor;
+    ctx.font = "9px monospace";
+    options.forEach((opt, i) => {
+      ctx.fillStyle = i === cursor ? "#ffffff" : "#c7c7d1";
+      ctx.fillText((i === cursor ? "▶ " : "   ") + opt, boxX + 14, boxY + 36 + i * 12);
+    });
+    ctx.fillStyle = "#8a8a92"; ctx.font = "7px monospace";
+    ctx.fillText(dialog.mode === "submenu" ? "Cancelar/B: volver" : "Flechas: mover · Espacio/A: elegir · X: cerrar", boxX + 14, boxY + boxH - 8);
+  } else if (dialog.mode === "text") {
+    ctx.font = "9px monospace";
+    ctx.fillStyle = "#ffffff";
+    const shownText = dialog.text.slice(0, Math.floor(dialog.shown));
+    wrapText(shownText, boxX + 14, boxY + 36, boxW - 28, 13);
+    if (dialog.shown >= dialog.text.length && Math.sin(blinkTimer * 6) > 0) {
+      ctx.fillStyle = "#f2c199";
+      ctx.fillText("▼", boxX + boxW - 22, boxY + boxH - 10);
+    }
+  }
 }
 
 function drawTitle() {
@@ -647,7 +816,7 @@ function drawTitle() {
   ctx.fillText("OFICINA PIXEL", VW / 2, VH / 2 - 40);
   ctx.fillText("DE AGENTES", VW / 2, VH / 2 - 14);
 
-  const blink = Math.sin(titleBlink * 5) > -0.3;
+  const blink = Math.sin(blinkTimer * 5) > -0.3;
   if (blink) {
     ctx.fillStyle = "#f2c199";
     ctx.font = "bold 12px monospace";
@@ -656,7 +825,7 @@ function drawTitle() {
 
   ctx.fillStyle = "#8a8a92";
   ctx.font = "8px monospace";
-  ctx.fillText("v0.2 — motor sin dependencias", VW / 2, VH - 14);
+  ctx.fillText("v0.3 — motor sin dependencias", VW / 2, VH - 14);
 }
 
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
@@ -666,6 +835,13 @@ function render() {
   ctx.fillStyle = "#0a0a12";
   ctx.fillRect(0, 0, VW, VH);
   drawTiles();
+  if (gameState === "office" && nearAgent) {
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "8px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("ESPACIO / A: hablar con " + CHAR_CONFIGS[nearAgent.cfgKey].name, VW / 2, VH - 8);
+  }
+  if (gameState === "dialog") drawDialogBox();
 }
 
 function loop(now) {
