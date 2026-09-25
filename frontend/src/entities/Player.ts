@@ -11,11 +11,10 @@ const WALK_FRAME_MS = 160; // cada cuanto alterna el frame de "piernas" al camin
  * generada por código (ver BootScene); la Fase 2 la reemplaza por el sprite
  * sheet real con animaciones de caminar en 4 direcciones.
  *
- * El "ciclo de caminata" se hace cambiando la textura completa del sprite
- * (setTexture) en vez de usar el sistema de animaciones de Phaser, para no
- * depender de cómo Phaser resuelve frames entre texturas generadas por
- * separado (generateTexture) — más simple y sin sorpresas mientras no haya
- * un spritesheet real.
+ * El "ciclo de caminata" cambia de frame dentro del atlas "player-atlas"
+ * (ver BootScene.generatePlayerAtlas) con setTexture(key, frame), en vez de
+ * usar this.anims.play() — más simple y predecible mientras no haya un
+ * spritesheet real (Fase 2).
  */
 export class Player extends Phaser.Physics.Arcade.Sprite {
   facing: Facing = "down";
@@ -24,7 +23,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private walkFrameIndex: 0 | 1 = 0;
 
   constructor(scene: Phaser.Scene, x: number, y: number, input: InputState) {
-    super(scene, x, y, "player-down-0");
+    super(scene, x, y, "player-atlas", "down-0");
     this.input = input;
     scene.add.existing(this);
     scene.physics.add.existing(this);
@@ -74,6 +73,6 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       this.walkFrameIndex = 0;
     }
 
-    this.setTexture(`player-${this.facing}-${this.walkFrameIndex}`);
+    this.setTexture("player-atlas", `${this.facing}-${this.walkFrameIndex}`);
   }
 }

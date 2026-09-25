@@ -46,7 +46,7 @@ export class BootScene extends Phaser.Scene {
   create(): void {
     this.generateTileTextures();
     this.generateFurnitureTextures();
-    this.generatePlayerTextures();
+    this.generatePlayerAtlas();
     this.scene.start("Title");
   }
 
@@ -81,48 +81,70 @@ export class BootScene extends Phaser.Scene {
     g.destroy();
   }
 
-  /** Jugador: 16x20 (un poco más alto que ancho, como los sprites GB clásicos). */
-  private generatePlayerTextures(): void {
+  /**
+   * Jugador: 16x20 (un poco más alto que ancho, como los sprites GB
+   * clásicos). En vez de usar `Graphics.generateTexture()` por frame (que
+   * en algunos navegadores/GPU con el renderer WebGL termina generando
+   * texturas sin datos válidos y revienta al hacer setTexture/anims.play
+   * con "Cannot set properties of undefined (setting 'width')"), se dibuja
+   * TODO en un único <canvas> 2D normal — el mismo mecanismo con el que
+   * cualquier imagen llega a Phaser — y se registra como un atlas con un
+   * frame nombrado por cada combinación (dirección, paso de caminata).
+   * `Player` hace `setTexture("player-atlas", "down-0")`, etc.
+   */
+  private generatePlayerAtlas(): void {
     const w = 16;
     const h = 20;
     const facings: Facing[] = ["down", "up", "left", "right"];
-    const g = this.make.graphics({ x: 0, y: 0 }, false);
 
-    for (const facing of facings) {
-      for (const frame of [0, 1]) {
-        g.clear();
-        // Cuerpo.
-        g.fillStyle(Palette.playerBody, 1);
-        g.fillRoundedRect(2, 4, w - 4, h - 8, 3);
-        // Cabeza.
-        g.fillStyle(0xf0c8a0, 1);
-        g.fillCircle(w / 2, 6, 5);
-        // Indicador de direccion (mirada).
-        g.fillStyle(Palette.playerAccent, 1);
-        const eyeOffset = frame === 0 ? 0 : 1;
-        if (facing === "down") g.fillRect(w / 2 - 3, 5 + eyeOffset, 6, 2);
-        if (facing === "up") g.fillRect(w / 2 - 3, 2, 6, 2);
-        if (facing === "left") g.fillRect(2, 5 + eyeOffset, 4, 2);
-        if (facing === "right") g.fillRect(w - 6, 5 + eyeOffset, 4, 2);
-        // "Piernas" alternadas para simular caminata (frame 0 / frame 1).
-        g.fillStyle(Palette.playerAccent, 1);
-        if (frame === 0) {
-          g.fillRect(3, h - 5, 3, 4);
-          g.fillRect(w - 6, h - 6, 3, 4);
-        } else {
-          g.fillRect(3, h - 6, 3, 4);
-          g.fillRect(w - 6, h - 5, 3, 4);
-        }
-        g.generateTexture(`player-${facing}-${frame}`, w, h);
-      }
+    const canvas = document.createElement("canvas");
+    canvas.width = w * facings.length;
+    canvas.height = h * 2;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      throw new Error("No se pudo crear el contexto 2D para el atlas del jugador.");
     }
-    // Textura "por defecto" usada al crear el sprite antes de reproducir animación.
-    g.clear();
-    g.fillStyle(Palette.playerBody, 1);
-    g.fillRoundedRect(2, 4, w - 4, h - 8, 3);
-    g.fillStyle(0xf0c8a0, 1);
-    g.fillCircle(w / 2, 6, 5);
-    g.generateTexture("player-placeholder", w, h);
-    g.destroy();
+
+    const bodyColor = `#${Palette.playerBody.toString(16).padStart(6, "0")}`;
+    const accentColor = `#${Palette.playerAccent.toString(16).padStart(6, "0")}`;
+
+    facings.forEach((facing, col) => {
+      for (const frame of [0, 1]) {
+        const ox = col * w;
+        const oy = frame * h;
+
+        // Cuerpo.
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(ox + 2, oy + 4, w - 4, h - 8);
+        // Cabeza.
+        ctx.fillStyle = "#f0c8a0";
+        ctx.beginPath();
+        ctx.arc(ox + w / 2, oy + 6, 5, 0, Math.PI * 2);
+        ctx.fill();
+        // Indicador de dirección (mirada).
+        ctx.fillStyle = accentColor;
+        const eyeOffset = frame === 0 ? 0 : 1;
+        if (facing === "down") ctx.fillRect(ox + w / 2 - 3, oy + 5 + eyeOffset, 6, 2);
+        if (facing === "up") ctx.fillRect(ox + w / 2 - 3, oy + 2, 6, 2);
+        if (facing === "left") ctx.fillRect(ox + 2, oy + 5 + eyeOffset, 4, 2);
+        if (facing === "right") ctx.fillRect(ox + w - 6, oy + 5 + eyeOffset, 4, 2);
+        // "Piernas" alternadas para simular caminata.
+        if (frame === 0) {
+          ctx.fillRect(ox + 3, oy + h - 5, 3, 4);
+          ctx.fillRect(ox + w - 6, oy + h - 6, 3, 4);
+        } else {
+          ctx.fillRect(ox + 3, oy + h - 6, 3, 4);
+          ctx.fillRect(ox + w - 6, oy + h - 5, 3, 4);
+        }
+      }
+    });
+
+    this.textures.addCanvas("player-atlas", canvas);
+    const texture = this.textures.get("player-atlas");
+    facings.forEach((facing, col) => {
+      for (const frame of [0, 1]) {
+        texture.add(`${facing}-${frame}`, 0, col * w, frame * h, w, h);
+      }
+    });
   }
 }
